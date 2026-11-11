@@ -2,42 +2,34 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+from datetime import datetime
 
-st.set_page_config(page_title="Togo Terminal Dashboard", layout="wide", page_icon="🚢")
+st.set_page_config(page_title="Togo Terminal - Ultimate Dashboard", layout="wide", page_icon="🚢")
 
-# ===== DESIGN CSS PRO =====
+# ===== DESIGN ULTIMATE =====
 st.markdown("""
 <style>
-.metric-card {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    padding: 20px;
-    border-radius: 15px;
-    color: white;
-    box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
+.kpi {
+    background: white; border-radius: 16px; padding: 22px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.06); border-left: 6px solid;
+    transition: transform 0.2s;
 }
-.kpi-box {
-    background: white;
-    padding: 20px;
-    border-radius: 12px;
-    border-left: 5px solid #667eea;
-    box-shadow: 0 2px 10px rgba(0,0,0,0.05);
-}
-.stPlotlyChart { background: white; border-radius: 12px; padding: 10px; }
+.kpi:hover { transform: translateY(-3px); }
+.kpi h3 { font-size: 14px; color: #6b7280; margin:0; font-weight:600; text-transform:uppercase; }
+.kpi h1 { font-size: 32px; margin: 8px 0 0 0; font-weight:700; color: #111827; }
+.kpi p { font-size: 13px; margin:4px 0 0 0; }
+.card { background: white; border-radius: 16px; padding: 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.06); margin-bottom: 20px; }
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown("# 🚢 TOGO TERMINAL - Gate Analytics")
-st.markdown("### Dashboard Temps Réel | Lome Port")
+st.markdown("<h1 style='margin-bottom:0'>🚢 TOGO TERMINAL - PERFORMANCE DASHBOARD</h1><p style='color:#6b7280'>Gate In • Transfert • Bloqués • Terminal • Navire</p>", unsafe_allow_html=True)
 
-uploaded = st.file_uploader("📁 Dépose ton TEMPLATE.xlsb ici", type=["xlsx","xlsb","xlsm"])
+uploaded = st.file_uploader("📁 Dépose ton TEMPLATE.xlsb", type=["xlsx","xlsb","xlsm"])
 
 if not uploaded:
-    st.markdown("""
-    <div style='text-align:center; padding:50px; background:#f8f9ff; border-radius:15px; border: 2px dashed #667eea;'>
-        <h3>👋 En attente de ton fichier</h3>
-        <p>Glisse ton fichier Excel pour générer le dashboard design</p>
-    </div>
-    """, unsafe_allow_html=True)
+    st.info("En attente du fichier TEMPLATE...")
     st.stop()
 
 @st.cache_data
@@ -48,102 +40,125 @@ def load_data(file):
 
 gate, vessel = load_data(uploaded)
 
-# --- DATA ---
-gate_clean = pd.DataFrame()
-gate_clean['CONTENEUR'] = gate.iloc[:, 2].astype(str).str.strip().str.upper()
-gate_clean['DATE_GATE'] = pd.to_datetime(gate.iloc[:, 20], errors='coerce')
-gate_clean['VOYAGE_NUM'] = gate_clean.groupby('CONTENEUR').cumcount() + 1
+# --- PARSING ROBUSTE ---
+gate_c = gate.iloc[:, 2].astype(str).str.strip().str.upper()
+gate_date = pd.to_datetime(gate.iloc[:, 20], errors='coerce')
+gate_iso = gate.iloc[:, 5].astype(str).str.strip().str.upper() if gate.shape[1] > 5 else "N/A"
 
-vessel_clean = pd.DataFrame()
-vessel_clean['CONTENEUR'] = vessel.iloc[:, 5].astype(str).str.strip().str.upper()
-vessel_clean['VESSEL'] = vessel.iloc[:, 1].astype(str)
-vessel_clean['LIGNE'] = vessel.iloc[:, 3].astype(str) if vessel.shape[1] > 3 else "N/A"
-vessel_clean['TYPE'] = vessel.iloc[:, 8].astype(str) if vessel.shape[1] > 8 else "40HC"
-vessel_clean['TERMINAL'] = vessel.iloc[:, 4].astype(str) if vessel.shape[1] > 4 else "LCT"
-vessel_clean['DATE_ARRIVEE'] = pd.to_datetime(vessel.iloc[:, 0], errors='coerce')
-vessel_clean['VOYAGE_NUM'] = vessel_clean.groupby('CONTENEUR').cumcount() + 1
+v_cont = vessel.iloc[:, 5].astype(str).str.strip().str.upper()
+v_vessel = vessel.iloc[:, 1].astype(str)
+v_ligne = vessel.iloc[:, 3].astype(str) if vessel.shape[1] > 3 else vessel.iloc[:, 2].astype(str)
+v_iso = vessel.iloc[:, 8].astype(str).str.strip().str.upper() if vessel.shape[1] > 8 else gate_iso
+v_terminal = vessel.iloc[:, 4].astype(str) if vessel.shape[1] > 4 else "LCT"
+v_arrivee = pd.to_datetime(vessel.iloc[:, 0], errors='coerce')
 
-merged = vessel_clean.merge(gate_clean[['CONTENEUR','VOYAGE_NUM','DATE_GATE']], on=['CONTENEUR','VOYAGE_NUM'], how='left')
+# DataFrames
+df_gate = pd.DataFrame({'CONTENEUR': gate_c, 'DATE_GATE': gate_date, 'ISO_GATE': gate_iso})
+df_gate['VOYAGE_NUM'] = df_gate.groupby('CONTENEUR').cumcount() + 1
+
+df_vessel = pd.DataFrame({
+    'CONTENEUR': v_cont, 'VESSEL': v_vessel, 'LIGNE': v_ligne,
+    'ISO': v_iso, 'TERMINAL': v_terminal, 'DATE_ARRIVEE': v_arrivee
+})
+df_vessel['VOYAGE_NUM'] = df_vessel.groupby('CONTENEUR').cumcount() + 1
+
+merged = df_vessel.merge(df_gate[['CONTENEUR','VOYAGE_NUM','DATE_GATE']], on=['CONTENEUR','VOYAGE_NUM'], how='left')
 merged['STATUS'] = merged['DATE_GATE'].apply(lambda x: 'Transféré' if pd.notna(x) else 'Reste')
-merged['JOURS'] = (merged['DATE_GATE'] - merged['DATE_ARRIVEE']).dt.days
+merged['JOURS_TRANSFERT'] = (merged['DATE_GATE'] - merged['DATE_ARRIVEE']).dt.days
+merged['JOURS_ATTENTE'] = (pd.Timestamp.now() - merged['DATE_ARRIVEE']).dt.days
+merged['BLOQUE'] = (merged['STATUS']=='Reste') & (merged['JOURS_ATTENTE'] > 7)
 
-transferred = merged[merged['STATUS']=='Transféré']
-restants = merged[merged['STATUS']=='Reste']
-bloques = restants[restants['DATE_ARRIVEE'] < (pd.Timestamp.now() - pd.Timedelta(days=7))]
+trans = merged[merged['STATUS']=='Transféré']
+rest = merged[merged['STATUS']=='Reste']
+bloq = merged[merged['BLOQUE']==True]
 
-# ===== KPI CARDS DESIGN =====
-c1,c2,c3,c4,c5 = st.columns(5)
-with c1:
-    st.markdown(f"<div class='kpi-box'><h4>✅ Transféré</h4><h2>{len(transferred):,}</h2><p style='color:green'>{(len(transferred)/len(merged)*100):.1f}%</p></div>", unsafe_allow_html=True)
-with c2:
-    st.markdown(f"<div class='kpi-box' style='border-left-color:#ff9800'><h4>⏳ Restants</h4><h2>{len(restants):,}</h2><p style='color:orange'>À transférer</p></div>", unsafe_allow_html=True)
-with c3:
-    st.markdown(f"<div class='kpi-box' style='border-left-color:#f44336'><h4>🚫 Bloqués</h4><h2>{len(bloques):,}</h2><p style='color:red'>> 7 jours</p></div>", unsafe_allow_html=True)
-with c4:
-    moy = transferred['JOURS'].mean() if not transferred.empty else 0
-    st.markdown(f"<div class='kpi-box' style='border-left-color:#2196f3'><h4>⏱️ Moy. Transfert</h4><h2>{moy:.1f} j</h2><p>Temps moyen</p></div>", unsafe_allow_html=True)
-with c5:
-    st.markdown(f"<div class='kpi-box' style='border-left-color:#9c27b0'><h4>📦 Total</h4><h2>{len(merged):,}</h2><p>Conteneurs</p></div>", unsafe_allow_html=True)
+# ===== 1. KPI TOP =====
+k1,k2,k3,k4,k5 = st.columns(5)
+with k1: st.markdown(f"<div class='kpi' style='border-color:#10b981'><h3>✅ Transférés</h3><h1>{len(trans):,}</h1><p style='color:#10b981'>{(len(trans)/len(merged)*100):.1f}% du total</p></div>", unsafe_allow_html=True)
+with k2: st.markdown(f"<div class='kpi' style='border-color:#f59e0b'><h3>⏳ Restants</h3><h1>{len(rest):,}</h1><p style='color:#f59e0b'>À transférer</p></div>", unsafe_allow_html=True)
+with k3: st.markdown(f"<div class='kpi' style='border-color:#ef4444'><h3>🚫 Bloqués >7j</h3><h1>{len(bloq):,}</h1><p style='color:#ef4444'>{(len(bloq)/len(rest)*100 if len(rest)>0 else 0):.1f}% des restants</p></div>", unsafe_allow_html=True)
+with k4: 
+    moy = trans['JOURS_TRANSFERT'].mean() if not trans.empty else 0
+    st.markdown(f"<div class='kpi' style='border-color:#3b82f6'><h3>⏱️ Moy. Transfert</h3><h1>{moy:.1f} j</h1><p>Temps moyen arrivée → gate</p></div>", unsafe_allow_html=True)
+with k5: st.markdown(f"<div class='kpi' style='border-color:#8b5cf6'><h3>📦 Total</h3><h1>{len(merged):,}</h1><p>{merged['LIGNE'].nunique()} lignes • {merged['VESSEL'].nunique()} navires</p></div>", unsafe_allow_html=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-# ===== GRAPHIQUES DESIGN =====
-row1_col1, row1_col2 = st.columns([2,1])
-
-with row1_col1:
-    st.markdown("#### 📅 Conteneurs Transférés par Jour / Ligne / Type")
-    if not transferred.empty:
-        transferred['JOUR'] = transferred['DATE_GATE'].dt.date
-        daily = transferred.groupby(['JOUR','LIGNE']).size().reset_index(name='NB')
-        fig = px.area(daily, x='JOUR', y='NB', color='LIGNE', 
-                      color_discrete_sequence=px.colors.qualitative.Set2,
-                      title="")
-        fig.update_layout(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', height=350)
+# ===== 2. CONTRIBUTION LIGNE + TRANSFERT PAR JOUR ISO =====
+c1, c2 = st.columns([2, 1])
+with c1:
+    st.markdown("<div class='card'>", unsafe_allow_html=True)
+    st.markdown("#### 📅 Conteneurs transférés par jour / Ligne / ISO")
+    if not trans.empty:
+        trans['JOUR'] = trans['DATE_GATE'].dt.date
+        daily = trans.groupby(['JOUR','LIGNE','ISO']).size().reset_index(name='NB')
+        fig = px.bar(daily, x='JOUR', y='NB', color='LIGNE', facet_col='ISO', 
+                     color_discrete_sequence=px.colors.qualitative.Bold,
+                     category_orders={"ISO": sorted(daily['ISO'].unique())})
+        fig.update_layout(height=400, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
         st.plotly_chart(fig, use_container_width=True)
+    st.markdown("</div>", unsafe_allow_html=True)
 
-with row1_col2:
-    st.markdown("#### 🚫 Répartition Bloqués par Ligne")
-    if not restants.empty:
-        bloq = restants.groupby('LIGNE').size().reset_index(name='NB').sort_values('NB', ascending=False).head(8)
-        fig2 = px.pie(bloq, values='NB', names='LIGNE', hole=0.6,
-                      color_discrete_sequence=px.colors.sequential.RdBu)
-        fig2.update_layout(height=350)
-        st.plotly_chart(fig2, use_container_width=True)
+with c2:
+    st.markdown("<div class='card'>", unsafe_allow_html=True)
+    st.markdown("#### 🥧 Contribution de chaque Ligne Maritime")
+    contrib = merged.groupby('LIGNE').size().reset_index(name='NB').sort_values('NB', ascending=False)
+    fig_pie = px.pie(contrib, values='NB', names='LIGNE', hole=0.55, 
+                     color_discrete_sequence=px.colors.qualitative.Pastel)
+    fig_pie.update_layout(height=400, showlegend=True)
+    st.plotly_chart(fig_pie, use_container_width=True)
+    st.markdown("</div>", unsafe_allow_html=True)
 
-row2_col1, row2_col2 = st.columns(2)
-
-with row2_col1:
+# ===== 3. MENSUEL + PERFORMANCE TERMINAL =====
+c3, c4 = st.columns(2)
+with c3:
+    st.markdown("<div class='card'>", unsafe_allow_html=True)
     st.markdown("#### 📊 Total Transféré par Mois et par Terminal")
-    if not transferred.empty:
-        transferred['MOIS'] = transferred['DATE_GATE'].dt.strftime('%Y-%m')
-        monthly = transferred.groupby(['MOIS','TERMINAL']).size().reset_index(name='NB')
-        fig3 = px.bar(monthly, x='MOIS', y='NB', color='TERMINAL', barmode='group',
-                      color_discrete_sequence=['#667eea','#764ba2','#f093fb'])
-        fig3.update_layout(height=350, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
-        st.plotly_chart(fig3, use_container_width=True)
+    if not trans.empty:
+        trans['MOIS'] = trans['DATE_GATE'].dt.to_period('M').astype(str)
+        monthly = trans.groupby(['MOIS','TERMINAL']).size().reset_index(name='NB')
+        fig_m = px.bar(monthly, x='MOIS', y='NB', color='TERMINAL', barmode='group',
+                       color_discrete_sequence=['#6366f1','#06b6d4','#f59e0b'])
+        fig_m.update_layout(height=380, paper_bgcolor='rgba(0,0,0,0)')
+        st.plotly_chart(fig_m, use_container_width=True)
+    st.markdown("</div>", unsafe_allow_html=True)
 
-with row2_col2:
-    st.markdown("#### ⏱️ Moyenne Temps de Transfert (jours)")
-    if not transferred.empty and transferred['JOURS'].notna().sum() > 0:
-        fig4 = px.histogram(transferred, x='JOURS', nbins=25, 
-                            color_discrete_sequence=['#667eea'],
-                            title="")
-        fig4.add_vline(x=transferred['JOURS'].mean(), line_dash="dash", line_color="red", annotation_text=f"Moy: {transferred['JOURS'].mean():.1f}j")
-        fig4.update_layout(height=350, paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)')
-        st.plotly_chart(fig4, use_container_width=True)
+with c4:
+    st.markdown("<div class='card'>", unsafe_allow_html=True)
+    st.markdown("#### ⚡ Performance en jours de chaque Terminal")
+    if not trans.empty and trans['JOURS_TRANSFERT'].notna().sum()>0:
+        perf = trans.groupby('TERMINAL')['JOURS_TRANSFERT'].agg(['mean','median','count']).reset_index()
+        fig_perf = px.bar(perf, x='TERMINAL', y='mean', color='TERMINAL',
+                          text_auto='.1f',
+                          color_discrete_sequence=px.colors.qualitative.Set3)
+        fig_perf.update_layout(height=380, yaxis_title="Jours moyens", showlegend=False)
+        st.plotly_chart(fig_perf, use_container_width=True)
+        st.dataframe(perf.rename(columns={'mean':'Moyenne','median':'Médiane','count':'Volume'}), use_container_width=True)
+    st.markdown("</div>", unsafe_allow_html=True)
 
-# ===== TABLEAU + EXPORT =====
-st.divider()
-st.markdown("#### 🔍 Détail & Recherche")
-col_f1, col_f2, col_f3 = st.columns(3)
-ligne_f = col_f1.selectbox("Ligne Maritime", ["Toutes"] + sorted(merged['LIGNE'].dropna().unique().tolist()[:20]))
-type_f = col_f2.selectbox("Type Conteneur", ["Tous"] + sorted(merged['TYPE'].dropna().unique().tolist()[:20]))
-search = col_f3.text_input("🔎 Conteneur")
+# ===== 4. RESUME CHAQUE NAVIRE =====
+st.markdown("<div class='card'>", unsafe_allow_html=True)
+st.markdown("#### 🚢 Résumé de chaque Navire")
+resume_navire = merged.groupby('VESSEL').agg(
+    LIGNE=('LIGNE','first'),
+    TERMINAL=('TERMINAL','first'),
+    TOTAL=('CONTENEUR','count'),
+    TRANSFERES=('STATUS', lambda x: (x=='Transféré').sum()),
+    RESTANTS=('STATUS', lambda x: (x=='Reste').sum()),
+    BLOQUES=('BLOQUE','sum'),
+    MOY_JOURS=('JOURS_TRANSFERT','mean')
+).reset_index().sort_values('TOTAL', ascending=False)
 
-df_show = merged.copy()
-if ligne_f != "Toutes": df_show = df_show[df_show['LIGNE']==ligne_f]
-if type_f != "Tous": df_show = df_show[df_show['TYPE']==type_f]
-if search: df_show = df_show[df_show['CONTENEUR'].str.contains(search.upper())]
+resume_navire['TAUX'] = (resume_navire['TRANSFERES']/resume_navire['TOTAL']*100).round(1)
+resume_navire['MOY_JOURS'] = resume_navire['MOY_JOURS'].round(1)
 
-st.dataframe(df_show[['VESSEL','CONTENEUR','LIGNE','TYPE','TERMINAL','STATUS','DATE_GATE','JOURS']], use_container_width=True, height=350)
-st.download_button("⬇️ Exporter en CSV", df_show.to_csv(index=False).encode(), "dashboard_togo_terminal.csv", use_container_width=True)
+fig_nav = px.bar(resume_navire.head(20), x='VESSEL', y=['TRANSFERES','RESTANTS'], 
+                 title="Top 20 Navires - Transférés vs Restants",
+                 color_discrete_sequence=['#10b981','#f59e0b'])
+fig_nav.update_layout(height=400, paper_bgcolor='rgba(0,0,0,0)')
+st.plotly_chart(fig_nav, use_container_width=True)
+st.dataframe(resume_navire, use_container_width=True, height=400)
+st.markdown("</div>", unsafe_allow_html=True)
+
+# ===== EXPORT =====
+st.download_button("⬇️ Exporter tout le Dashboard (CSV)", merged.to_csv(index=False).encode(), "ultimate_dashboard.csv", use_container_width=True)
